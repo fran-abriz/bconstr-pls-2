@@ -1,7 +1,8 @@
+### Modifications Francesca Rizzardi, 2016-07-14
 ### svdpc.fit.R: SVD PC fit algorithm
-### $Id: svdpc.fit.R 108 2007-03-19 17:46:06Z bhm $
+### $Id: ORIG-svdpc.fit.R 108 2007-03-19-2016-07-03 17:46:06Z bhm $
 
-svdpc.fit <- function(X, Y, ncomp, stripped = FALSE, ...)
+MYsvdpc.fit <- function(X, Y, ncomp, lbd=-Inf, stripped = FALSE, ...)
 {
     Y <- as.matrix(Y)
     if (!stripped) {
@@ -18,6 +19,7 @@ svdpc.fit <- function(X, Y, ncomp, stripped = FALSE, ...)
     nresp <- dim(Y)[2]
 
     B <- array(0, dim = c(npred, nresp, ncomp))
+    bsave <- array(0, dim = c(npred, nresp, ncomp))
     if (!stripped) fitted <- array(0, dim = c(nobj, nresp, ncomp))
 
     ## Center variables:
@@ -29,12 +31,23 @@ svdpc.fit <- function(X, Y, ncomp, stripped = FALSE, ...)
     huhn <- La.svd(X)
     D <- huhn$d[1:ncomp]
     TT <- huhn$u[,1:ncomp, drop=FALSE] %*% diag(D, nrow = ncomp)
-    P <- t(huhn$vt[1:ncomp,, drop=FALSE])
+    Vt = huhn$vt[1:ncomp,, drop=FALSE] # ncomp x npred
+    P <- t(Vt) # npred x ncomp
     tQ <- crossprod(TT, Y) / D^2
 
     for (a in 1:ncomp) {
         B[,,a] <- P[,1:a, drop=FALSE] %*% tQ[1:a,]
-        if (!stripped) fitted[,,a] <- TT[,1:a, drop=FALSE] %*% tQ[1:a,]
+	if (!stripped) {
+	    b <- (B[,,a, drop=FALSE] >= lbd)*1 # matrix, trick: converts T/F -> 1/0
+	    # NOTE that drop=FALSE for B means that b is npred x resp x 1
+	    bsave[,,a] = b[,,1]
+	    B[,,a] <- B[,,a] * b
+	    for (i in 1:nresp) {
+		bv <- diag(b[,i,1]) # npred x npred
+		Vb = Vt[1:a,] %*% bv %*% P[,1:a]
+		fitted[,i,a] <- (TT[,1:a, drop=FALSE] %*% Vb %*% tQ[1:a,])[,i]
+		}
+	}
     }
 
     if (stripped) {
@@ -62,7 +75,7 @@ svdpc.fit <- function(X, Y, ncomp, stripped = FALSE, ...)
         R <- P                          # To avoid class "loadings" on projection
         class(P) <- class(tQ) <- "loadings"
 
-        list(coefficients = B,
+        list(coefficients = B, b = bsave,
              scores = TT, loadings = P,
              Yloadings = t(tQ),
              projection = R,
